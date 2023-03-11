@@ -1,0 +1,58 @@
+version: '3'
+networks:
+  elastic:
+    driver: bridge
+
+services:
+  elasticsearch:
+    privileged: true
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    container_name: elasticsearch_server                 # 容器名
+    restart: always                                  # 指定容器退出后的重启策略为始终重启
+    volumes:                                         # 数据卷挂载路径设置,将本机目录映射到容器目录
+      - ${ES_DATA_VOLUME}
+    environment: # 设置环境变量,相当于docker run命令中的-e
+      discovery.type: single-node
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS}
+      http.host: "0.0.0.0"
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+      xpack.security.http.ssl.enabled: false
+      xpack.security.transport.ssl.enabled: false
+    ports:                                           # 映射端口
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - elastic
+
+  kibana_before:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    depends_on: # 解决容器依赖启动先后问题
+      - elasticsearch
+    networks:
+      - elastic
+    command: >
+      bash -c '
+        echo "Setting kibana_system password";
+        until curl -L -X POST http://elasticsearch_server:9200/_security/user/kibana_system/_password -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
+        echo "All done!";
+      '
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
+    container_name: kibana_server                             # 容器名为'kafka_server'
+    restart: always                                          # 指定容器退出后的重启策略为始终重启
+    environment:                        # 设置环境变量,相当于docker run命令中的-e
+      ELASTICSEARCH_HOSTS: http://elasticsearch_server:9200          # http://ka-host.inlcc.cn:9200
+      ELASTICSEARCH_URL: http://elasticsearch_server:9200
+      elasticsearch.ssl.verificationMode: none
+      ELASTICSEARCH_USERNAME: kibana_system
+      ELASTICSEARCH_PASSWORD: ${KIBANA_PASSWORD}
+      I18N_LOCALE: zh-CN
+      SERVER_HOST: "0.0.0.0"
+      SERVER_SHUTDOWNTIMEOUT: 5s
+    ports:                              # 映射端口
+      - "5601:5601"
+    depends_on:                         # 解决容器依赖启动先后问题
+      - kibana_before
+    networks:
+      - elastic
